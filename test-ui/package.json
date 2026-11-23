@@ -1,0 +1,11 @@
+{
+  "name": "agent-dashboard-ui-tests",
+  "private": true,
+  "type": "module",
+  "description": "Renders the dashboard's TUI parts headlessly with OpenTUI's test renderer. Run with ./run.sh (uses podman).",
+  "dependencies": {
+    "solid-js": "^1.9.16",
+    "@opentui/core": "0.9.7",
+    "@opentui/solid": "0.9.7"
+  }
+}

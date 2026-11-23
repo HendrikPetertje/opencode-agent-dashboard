@@ -14,5 +14,9 @@
     "@opentui/core": ">=0.6.6",
     "@opentui/solid": ">=0.6.6",
     "solid-js": ">=1.9.0"
+  },
+  "dependencies": {
+    "croner": "^11.0.1",
+    "ksuid": "^3.0.0"
   }
 }
