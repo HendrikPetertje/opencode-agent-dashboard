@@ -34,7 +34,6 @@ export interface SessionsTabArgs {
   /** Opens a session in a tab and closes the dashboard. */
   openSession: (sessionID: string) => void;
   /** Moves to the next (1) or previous (-1) tab. */
-  cycleTab: (step: number) => void;
   /** Turns the dashboard's own keys off while a dialog is open. */
   suspend: (value: boolean) => void;
 }
@@ -164,8 +163,6 @@ export function createSessionsTab(args: SessionsTabArgs) {
 
   const live = () => args.active();
   const commands = [
-    { bind: "right", enabled: live, run: () => args.cycleTab(1) },
-    { bind: "left", enabled: live, run: () => args.cycleTab(-1) },
     { bind: "j", enabled: live, run: () => select(1) },
     { bind: "k", enabled: live, run: () => select(-1) },
     { bind: "down", enabled: live, run: () => select(1) },

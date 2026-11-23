@@ -49,7 +49,7 @@ export function Dashboard(props: DashboardProps) {
   const tabs = [
     {
       name: "Sessions",
-      ...createSessionsTab({ ...shared, active: () => tab() === 0 && !prompting(), rows: () => Math.max(1, boxHeight() - CHROME_ROWS), sessionLimit: props.sessionLimit, cycleTab }),
+      ...createSessionsTab({ ...shared, active: () => tab() === 0 && !prompting(), rows: () => Math.max(1, boxHeight() - CHROME_ROWS), sessionLimit: props.sessionLimit }),
     },
     { name: "Schedule", ...createSchedule({ ...shared, active: () => tab() === 1 && !prompting() }) },
   ];
