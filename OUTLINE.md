@@ -36,7 +36,9 @@ src/schedule/
   shared/       pure code + types used by both halves: types.ts, cron.ts, calendar.ts, format.ts
   ui/           TUI only: schedule-tab.tsx, job-editor.tsx, picker.tsx, run-preview.tsx
   server/       server only: setup.ts, runner.ts, store.ts, db.ts, id.ts, validate.ts, notify.ts,
-                prompts.ts, log.ts, code-version.ts
+                prompts.ts, log.ts, code-version.ts, jobs-api.ts (job operations shared by RPC and tools),
+                job-tools.ts (agent tools + sandbox guard)
+skills/         skills shipped with the plugin (schedule-job); scripts/install-skills.sh links them
 test-ui/        headless UI tests (podman), see Testing
 ```
 
@@ -68,6 +70,7 @@ anchor in `session.composer.top` reports the prompt's row so the modal ends one 
 | `sessions {jobID}` / `purge {jobID}` | session ids of a job's runs / delete job and runs | permanent delete flow |
 | `runs {jobID}` | all runs of a job | schedule tab, calendar |
 | `presence {id, gone}` | a TUI is open (every 20 s) | `dashboard/notifications.ts` |
+| `agentTools {enabled?}` | read / set the agent job tools toggle | schedule tab footer |
 | event `changed` | jobs or runs changed: refetch | schedule tab |
 | event `finished` | a run ended: show a toast (title, message, variant, sessionId) | `dashboard/notifications.ts` |
 
@@ -96,10 +99,24 @@ TUI calls pass `{ location }`. Handlers must read the **current** runtime (`cur(
 
 The job runs with whatever auto-mode/sandbox its folder already has; the plugin never changes them.
 
+## Agent job tools (`schedule/server/job-tools.ts`)
+
+`schedule-job-list` / `-save` / `-archive` / `-restore` let an interactive agent manage jobs (driven by the
+`schedule-job` skill). They call `jobs-api.ts` like the RPC handlers and emit `changed`. `save` with an `id` merges
+the given fields over the stored job. They are off by default: the `settings` row `agentTools` (toggled by `t` / the
+wrench in the Schedule tab footer, RPC `agentTools`) must be `on`. They are only **registered** (`ctx.tool.transform`)
+while it is on and the registration is disposed when it goes off, because hook removals do not reach Code Mode
+catalogs; registry changes also make OpenCode post its "catalog changed" notice in sessions. Every instance re-checks
+the setting every 5 s so other OpenCode processes follow. The context hook still removes them from
+active run sessions and from sessions whose
+directory is sandboxed (`globalThis.__opencodeSandboxMode.isSandboxed`; plugin present but no clear answer = sandboxed);
+every `execute` checks the toggle and the sandbox again. Keep names, order and descriptions fixed: the tool list is part of the
+cached prompt prefix.
+
 ## Storage
 
 `$XDG_STATE_HOME/opencode-dashboard/` (default `~/.local/state/…`): `dashboard.db` (SQLite, WAL) with
-tables `jobs` and `job_runs`, and `dashboard.log`. Schema = `MIGRATIONS` in `db.ts` (`PRAGMA user_version`).
+tables `jobs`, `job_runs` and `settings` (key/value, e.g. `agentTools`), and `dashboard.log`. Schema = `MIGRATIONS` in `db.ts` (`PRAGMA user_version`).
 Driver: `bun:sqlite`, fallback `node:sqlite`. Only the server half opens it.
 
 ## How to…
@@ -128,6 +145,7 @@ carries users/emitters over; `adopt()` then recovers running runs.
 - Cron is evaluated in the process's local time zone. Keep `croner` imports in `schedule/shared/cron.ts`.
 - The TUI half has no options: do not read `context.options` for anything the server owns.
 - The `job-result` tool must stay out of normal sessions (context hook); it still shows in Code Mode catalogs.
+- The job tools must stay out of run sessions and sandboxed sessions; a sandboxed agent scheduling a job is a sandbox escape.
 - The scheduler lives only in the server half; never start timers that run jobs from the TUI.
 - Never use shell strings for OS notifications; job names and agent messages are untrusted text.
 

@@ -12,7 +12,7 @@ An OpenCode plugin: a near-full-window modal with a **Sessions** tab (all root s
 
 The Schedule tab lists scheduled jobs on the left and a calendar of the selected job's runs on the right. `←`/`→` (or `h`/`l`) switch panes, `tab`/`shift+tab` switch tabs.
 
-- **Jobs (left):** `a` new, `enter` edit, `dd` archive (disables the job), `A` shows the archive (`u` restore, `dd` delete permanently, with the choice to remove the job's sessions).
+- **Jobs (left):** `a` new, `enter` edit, `dd` archive (disables the job), `A` shows the archive (`u` restore, `dd` delete permanently, with the choice to remove the job's sessions). `t` turns the agent job tools on or off (see "From a session").
 - **Calendar (right):** `↑`/`↓` step through past runs (starting at the latest), `enter` previews the run's session, `enter` again opens it in a tab. Jobs that run more than twice a day show the week, more than four times a day only today.
 - **Editor:** name, folder, agent, model, maximum minutes (default 30), enabled, prompt (the `input.newline` key adds a line) and a cron expression (five fields, local time) with the next three runs. `tab` moves between fields, `ctrl+s` saves.
 
@@ -21,6 +21,10 @@ Runs are started by the OpenCode process that is running (nothing runs when Open
 When a run ends (succeeded, failed or timed out) an open TUI shows a toast that offers to open the run's session. With no TUI open an operating system notification is shown instead (macOS `osascript`, Linux `notify-send`). Turn that off with the plugin option `"osNotifications": false`, for example when another plugin already forwards notifications.
 
 Jobs and runs are stored in `~/.local/state/opencode-dashboard/dashboard.db` (SQLite). Problems are logged in `dashboard.log` next to it.
+
+### From a session
+
+Ask the agent to "schedule a job" (or edit, archive, restore one). The `schedule-job` skill asks for every field with the question tool, drafts the job prompt so it runs headless, shows a summary to confirm, and can write `<job folder>/.opencode/AUTO_MODE_INSTRUCTIONS.md` for auto-mode. It uses the tools `schedule-job-list`, `schedule-job-save` (partial updates by `id`), `schedule-job-archive` and `schedule-job-restore`. They are **off by default** so they don't take context in every session: turn them on with the wrench toggle in the Schedule tab's footer (`t`), and off again when done. The setting is global (all sessions, all OpenCode processes). They are never available in job runs, nor when sandbox mode is on for the session's folder (a job runs outside the sandbox). Switching the toggle or sandbox mode changes the tool list, so the next request of a session misses the prompt cache once. The toggle adds or removes the tools themselves, so sessions get OpenCode's "catalog changed" notice.
 
 ## Keybind
 
@@ -56,6 +60,7 @@ The schedule uses `croner` and `ksuid`. Install them in the plugin folder withou
 
 ```sh
 bun install --omit=peer
+./scripts/install-skills.sh   # links skills/* into ~/.config/opencode/skill/ (build.sh in the config repo runs it too)
 ```
 
 If the schedule does not start right after installing, reload the plugin or restart OpenCode and check `~/.local/state/opencode-dashboard/dashboard.log`.

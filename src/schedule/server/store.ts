@@ -96,6 +96,15 @@ export function purgeJob(db: Db, id: string): void {
   db.run("DELETE FROM jobs WHERE id = ?", id);
 }
 
+/** Whether agents get the job tools (the Schedule tab's tools toggle). Off unless turned on. */
+export function agentToolsEnabled(db: Db): boolean {
+  return db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'agentTools'")?.value === "on";
+}
+
+export function setAgentTools(db: Db, enabled: boolean): void {
+  db.run("INSERT INTO settings (key, value) VALUES ('agentTools', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", enabled ? "on" : "off");
+}
+
 /** Session IDs linked to the runs of a job. */
 export function sessionsOfJob(db: Db, jobId: string): string[] {
   return db.all<{ session_id: string }>("SELECT DISTINCT session_id FROM job_runs WHERE job_id = ? AND session_id IS NOT NULL", jobId).map((r) => r.session_id);

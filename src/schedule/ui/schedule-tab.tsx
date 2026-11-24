@@ -39,6 +39,9 @@ export interface ScheduleArgs {
 
 type Pane = "list" | "calendar";
 
+/** Nerd Font wrench, like the power icon of auto-mode and sandbox-mode. */
+const TOOLS_ICON = "\uF0AD";
+
 export function createSchedule(args: ScheduleArgs) {
   const { ctx } = args;
   const c = () => args.colors();
@@ -57,6 +60,7 @@ export function createSchedule(args: ScheduleArgs) {
   const [frame, setFrame] = createSignal(0);
   const [problem, setProblem] = createSignal<string | undefined>();
   const [listWidth, setListWidth] = createSignal(0);
+  const [agentTools, setAgentTools] = createSignal(false);
   let scroll: { scrollTo(position: number): void } | undefined;
   let pendingD = 0;
   let pendingG = 0;
@@ -76,6 +80,17 @@ export function createSchedule(args: ScheduleArgs) {
       setProblem(undefined);
     } catch (error) {
       setProblem(unavailable(error));
+    }
+    try {
+      setAgentTools((await call("agentTools")).enabled === true);
+    } catch {}
+  };
+
+  const toggleAgentTools = async () => {
+    try {
+      setAgentTools((await call("agentTools", { enabled: !agentTools() })).enabled === true);
+    } catch (error) {
+      fail("switch the job tools", error);
     }
   };
 
@@ -309,6 +324,7 @@ export function createSchedule(args: ScheduleArgs) {
     { bind: "up", enabled: calendarFocus, run: () => stepRun("older") },
     { bind: "k", enabled: calendarFocus, run: () => stepRun("older") },
     { bind: "return", enabled: calendarFocus, run: previewRun },
+    { bind: "t", enabled: live, run: () => void toggleAgentTools() },
   ];
 
   const legend = () =>
@@ -534,13 +550,20 @@ export function createSchedule(args: ScheduleArgs) {
   );
 
   const Tab = () => (
-    <box flexDirection="row" flexGrow={1} flexBasis={0} minHeight={0} gap={2}>
-      <Show when={!args.small() || pane() === "list"}>
-        <List />
-      </Show>
-      <Show when={!args.small() || pane() === "calendar"}>
-        <Calendar />
-      </Show>
+    <box flexDirection="column" flexGrow={1} flexBasis={0} minHeight={0}>
+      <box flexDirection="row" flexGrow={1} flexBasis={0} minHeight={0} gap={2}>
+        <Show when={!args.small() || pane() === "list"}>
+          <List />
+        </Show>
+        <Show when={!args.small() || pane() === "calendar"}>
+          <Calendar />
+        </Show>
+      </box>
+      <box flexDirection="row" flexShrink={0} justifyContent="flex-end">
+        <text fg={(agentTools() ? c().accent : c().muted) as any} onMouseUp={() => void toggleAgentTools()}>
+          {`${TOOLS_ICON} agent tools ${agentTools() ? "ON" : "OFF"} (t)`}
+        </text>
+      </box>
     </box>
   );
 

@@ -10,11 +10,13 @@ import { log } from "./log.ts";
 import { HEADLESS_INSTRUCTIONS, JOB_RESULT_DESCRIPTION } from "./prompts.ts";
 import { Runner, type SessionApi } from "./runner.ts";
 import * as store from "./store.ts";
-import { parseJobInput } from "./validate.ts";
+import * as jobsApi from "./jobs-api.ts";
+import { isTool, JOB_TOOLS, jobTools, sandboxed } from "./job-tools.ts";
 import { DashboardSchedule } from "../../rpc.ts";
 
 const TOOL = "job-result";
 const STATUS_WAIT_MS = 1500;
+const TOOLS_POLL_MS = 5000;
 const KEY = Symbol.for("agent-dashboard.runtime");
 
 interface Runtime {
@@ -165,12 +167,8 @@ export async function setupSchedule(ctx: any): Promise<() => Promise<void>> {
   };
 
   registration = (await ctx.rpc.register(DashboardSchedule, {
-    jobs: async (input: any) => {
-      const jobs = store.listJobs(db(), { archived: input?.archived === true });
-      const last = store.lastRuns(db());
-      return { jobs, lastRuns: Object.fromEntries(jobs.flatMap((job) => (last.has(job.id) ? [[job.id, last.get(job.id)]] : []))), now: Date.now() };
-    },
-    save: async (input: any) => changed({ job: store.saveJob(db(), parseJobInput(input?.job)) }),
+    jobs: async (input: any) => ({ ...jobsApi.listJobs(db(), input?.archived === true), now: Date.now() }),
+    save: async (input: any) => changed({ job: jobsApi.saveJob(db(), input?.job) }),
     archive: async (input: any) => (store.archiveJob(db(), id(input)), changed({})),
     restore: async (input: any) => (store.restoreJob(db(), id(input)), changed({})),
     sessions: async (input: any) => ({ sessionIDs: store.sessionsOfJob(db(), id(input)) }),
@@ -187,6 +185,15 @@ export async function setupSchedule(ctx: any): Promise<() => Promise<void>> {
         }
       }
       return {};
+    },
+    agentTools: async (input: any) => {
+      if (typeof input?.enabled === "boolean") {
+        store.setAgentTools(db(), input.enabled);
+        log("agent tools", { enabled: input.enabled });
+        await syncJobTools();
+        changed(undefined);
+      }
+      return { enabled: store.agentToolsEnabled(db()) };
     },
     runs: async (input: any) => ({
       runs: store.listRuns(db(), { jobId: id(input), from: typeof input?.from === "number" ? input.from : undefined, to: typeof input?.to === "number" ? input.to : undefined }),
@@ -217,15 +224,60 @@ export async function setupSchedule(ctx: any): Promise<() => Promise<void>> {
     } as any);
   });
 
-  const contextHook = await (ctx.session.hook as any)("context", (event: any) => {
-    if (runner().isActive(String(event.sessionID))) {
+  // A session's directory does not change, so it is looked up once.
+  const directories = new Map<string, Promise<string | undefined>>();
+  const directoryOf = (sessionID: string): Promise<string | undefined> => {
+    let found = directories.get(sessionID);
+    if (!found) {
+      found = Promise.resolve(ctx.session.get({ sessionID } as any)).then(
+        (session: any) => session?.location?.directory ?? ctx.location?.directory,
+        () => ctx.location?.directory,
+      );
+      directories.set(sessionID, found);
+      if (directories.size > 500) directories.delete(directories.keys().next().value!);
+    }
+    return found;
+  };
+
+  // Tools to manage jobs from an interactive session. They are only registered while the toggle is on, so with it off
+  // they are in no tool list or Code Mode catalog, and OpenCode tells sessions when they appear or go.
+  let jobToolsRegistration: { dispose?: () => unknown } | undefined;
+  let syncing: Promise<void> = Promise.resolve();
+  let stopped = false;
+  const syncJobTools = () =>
+    (syncing = syncing.then(async () => {
+      const want = !stopped && store.agentToolsEnabled(db());
+      if (want && !jobToolsRegistration) {
+        jobToolsRegistration = await ctx.tool.transform((editor: any) => {
+          for (const tool of jobTools({ db, changed: () => changed(undefined), directoryOf, enabled: () => store.agentToolsEnabled(db()) })) {
+            if (!editor.get(tool.name)) editor.add(tool as any);
+          }
+        });
+      } else if (!want && jobToolsRegistration) {
+        const registration = jobToolsRegistration;
+        jobToolsRegistration = undefined;
+        await registration.dispose?.();
+      }
+    }).catch((error) => log("job tools sync failed", String(error))));
+  await syncJobTools();
+  // Another OpenCode process may flip the toggle; it shares the database, so follow it.
+  const toolsPoll = setInterval(() => void syncJobTools(), TOOLS_POLL_MS);
+
+  const drop = (event: any, names: readonly string[]) => {
+    for (const name of Object.keys(event.tools ?? {})) if (isTool(name, names)) delete event.tools[name];
+  };
+  const contextHook = await (ctx.session.hook as any)("context", async (event: any) => {
+    const sessionID = String(event.sessionID);
+    if (runner().isActive(sessionID)) {
       const system: any[] = event.system ?? [];
       if (!system.some((part) => typeof part?.text === "string" && part.text.includes("scheduled job in headless mode"))) {
         system.push({ type: "text", text: HEADLESS_INSTRUCTIONS });
       }
+      drop(event, JOB_TOOLS);
       return;
     }
-    for (const name of Object.keys(event.tools ?? {})) if (name === TOOL || name.endsWith(`_${TOOL}`)) delete event.tools[name];
+    drop(event, [TOOL]);
+    if (!store.agentToolsEnabled(db()) || sandboxed(await directoryOf(sessionID))) drop(event, JOB_TOOLS);
   });
 
   // Runs after auto-mode's hook when this plugin is listed after it, so the effect is already decided.
@@ -252,6 +304,9 @@ export async function setupSchedule(ctx: any): Promise<() => Promise<void>> {
 
   return async () => {
     abort.abort();
+    clearInterval(toolsPoll);
+    stopped = true;
+    await syncJobTools();
     await Promise.allSettled([toolRegistration, contextHook, permissionHook].map((r: any) => r?.dispose?.()));
     runtimeOf()?.finishers.delete(send);
     release(ctx, emit);

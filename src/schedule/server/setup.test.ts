@@ -16,15 +16,24 @@ function fakeContext() {
   const hooks: Record<string, (event: any) => unknown> = {};
   const emitted: unknown[] = [];
   const disposable = { dispose: async () => {} };
+  const transforms = { added: 0, disposed: 0 };
   const ctx: any = {
     options: {},
+    transforms,
     rpc: {
       register: async (definition: any, handlers: any) => {
         registered[definition.id] = handlers;
         return { events: { emit: async (...args: unknown[]) => void emitted.push(args) } };
       },
     },
-    tool: { transform: async () => disposable },
+    tool: {
+      transform: async (callback: (editor: any) => void) => {
+        const names: string[] = [];
+        callback({ get: () => undefined, add: (tool: any) => names.push(tool.name) });
+        if (names.some((name) => name.startsWith("schedule-job-"))) transforms.added++;
+        return { dispose: async () => void (names.some((name) => name.startsWith("schedule-job-")) && transforms.disposed++) };
+      },
+    },
     session: {
       hook: async (name: string, callback: (event: any) => unknown) => ((hooks[`session.${name}`] = callback), disposable),
       get: async () => ({}),
@@ -58,7 +67,33 @@ afterAll(async () => {
 });
 
 test("registers the schedule RPC with every method", () => {
-  expect(Object.keys(schedule).sort()).toEqual(["archive", "jobs", "presence", "purge", "restore", "runs", "save", "sessions"]);
+  expect(Object.keys(schedule).sort()).toEqual(["agentTools", "archive", "jobs", "presence", "purge", "restore", "runs", "save", "sessions"]);
+});
+
+test("agent tools are off by default and the toggle hides or shows them", async () => {
+  const tools = () => ({ bash: {}, "schedule-job-list": {}, "x_schedule-job-save": {} });
+  expect(await schedule.agentTools({})).toEqual({ enabled: false });
+  expect(ctx.transforms).toEqual({ added: 0, disposed: 0 });
+  const off = { sessionID: "ses_off", tools: tools(), system: [] as any[] };
+  await hooks["session.context"]!(off);
+  expect(Object.keys(off.tools)).toEqual(["bash"]);
+
+  expect(await schedule.agentTools({ enabled: true })).toEqual({ enabled: true });
+  expect(ctx.transforms).toEqual({ added: 1, disposed: 0 });
+  const on = { sessionID: "ses_on", tools: tools(), system: [] as any[] };
+  await hooks["session.context"]!(on);
+  expect(Object.keys(on.tools)).toEqual(["bash", "schedule-job-list", "x_schedule-job-save"]);
+
+  (globalThis as any).__opencodeSandboxMode = { isSandboxed: () => true };
+  try {
+    const sandboxed = { sessionID: "ses_sandboxed", tools: tools(), system: [] as any[] };
+    await hooks["session.context"]!(sandboxed);
+    expect(Object.keys(sandboxed.tools)).toEqual(["bash"]);
+  } finally {
+    delete (globalThis as any).__opencodeSandboxMode;
+    await schedule.agentTools({ enabled: false });
+  }
+  expect(ctx.transforms).toEqual({ added: 1, disposed: 1 });
 });
 
 test("jobs, save, runs, archive, restore, sessions and purge work against the real store", async () => {
@@ -100,7 +135,7 @@ test("presence calls are accepted", async () => {
 
 test("normal sessions lose the job-result tool, and permission checks pass through", async () => {
   const event = { sessionID: "ses_normal", tools: { "job-result": {}, bash: {} }, system: [] as any[] };
-  hooks["session.context"]!(event);
+  await hooks["session.context"]!(event);
   expect(Object.keys(event.tools)).toEqual(["bash"]);
   expect(event.system).toEqual([]);
   const permission = { sessionID: "ses_normal", action: "bash", resources: ["ls"], effect: "ask" };

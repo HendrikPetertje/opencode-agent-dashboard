@@ -41,6 +41,12 @@ const MIGRATIONS: Migration[] = [
   );
   CREATE INDEX job_runs_slot ON job_runs (job_id, scheduled_for);
   `,
+  `
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 /** Opens (creating if needed) a SQLite database and brings it to the latest schema. */

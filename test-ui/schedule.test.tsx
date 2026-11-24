@@ -32,6 +32,7 @@ function makeCtx(data: ReturnType<typeof fixture>, shown: any[] = []) {
         jobs: async (input: any) => (calls.push(["jobs", input]), { jobs: input?.archived ? [] : data.jobs, lastRuns: data.lastRuns, now }),
         runs: async (input: any) => (calls.push(["runs", input]), { runs: data.runs.filter((r) => r.jobId === input.jobID) }),
         archive: async (input: any) => (calls.push(["archive", input]), {}),
+        agentTools: async (input: any) => (calls.push(["agentTools", input]), (data as any).tools = typeof input?.enabled === "boolean" ? input.enabled : !!(data as any).tools, { enabled: (data as any).tools }),
         events: { on: () => () => {} },
       }),
     },
@@ -87,6 +88,14 @@ describe("schedule tab", () => {
     expect(f).toContain("✓");
     expect(f).toContain("0 9 * * *");
     expect(f).toContain("month");
+  });
+  test("agent tools toggle in the footer, off by default", async () => {
+    const { frame, schedule, rerender, calls } = await mount();
+    expect(frame()).toContain("agent tools OFF (t)");
+    schedule.commands.find((c) => c.bind === "t")!.run();
+    await rerender();
+    expect(calls).toContainEqual(["agentTools", { enabled: true }]);
+    expect(frame()).toContain("agent tools ON (t)");
   });
   test("keys: pane switch and run cursor", async () => {
     const { frame, schedule, rerender } = await mount();

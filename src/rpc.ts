@@ -32,6 +32,8 @@ export const DashboardSchedule = Rpc.define({
     runs: { input: object, output: object },
     /** Every TUI calls this regularly so the server knows whether one is open. */
     presence: { input: object, output: object },
+    /** `{ enabled? }`: reads, or with `enabled` sets, whether agents get the job tools. Returns `{ enabled }`. */
+    agentTools: { input: object, output: object },
   },
   events: {
     changed: { schema: object },
